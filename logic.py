@@ -1,84 +1,89 @@
 import sqlite3
 import matplotlib
-
-matplotlib.use('Agg')  # Menginstal backend Matplotlib untuk menyimpan file dalam memori tanpa menampilkan jendela
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import cartopy.crs as ccrs  # Mengimpor modul yang akan memungkinkan kita bekerja dengan proyeksi peta
+import cartopy.crs as ccrs
+from matplotlib.colors import is_color_like
 
 class DB_Map():
     def __init__(self, database):
-        self.database = database  # Menginisiasi jalur database
+        self.database = database
 
     def create_user_table(self):
-        conn = sqlite3.connect(self.database)  # Menghubungkan ke database
+        conn = sqlite3.connect(self.database)
         with conn:
-            # Membuat tabel, jika tidak ada, untuk menyimpan kota pengguna
             conn.execute('''CREATE TABLE IF NOT EXISTS users_cities (
                                 user_id INTEGER,
                                 city_id TEXT,
                                 FOREIGN KEY(city_id) REFERENCES cities(id)
                             )''')
-            conn.commit()  # Menyimpan perubahan
+            conn.execute('''CREATE TABLE IF NOT EXISTS users_color (
+                                user_id INTEGER PRIMARY KEY,
+                                color TEXT
+                            )''')
+            conn.commit()
 
     def add_city(self, user_id, city_name):
         conn = sqlite3.connect(self.database)
         with conn:
             cursor = conn.cursor()
-            # Mencari kota dalam database berdasarkan nama
             cursor.execute("SELECT id FROM cities WHERE city=?", (city_name,))
             city_data = cursor.fetchone()
             if city_data:
                 city_id = city_data[0]
-                # Menambahkan kota ke daftar kota pengguna
                 conn.execute('INSERT INTO users_cities VALUES (?, ?)', (user_id, city_id))
                 conn.commit()
-                return 1  # Menunjukkan bahwa operasi berhasil
+                return 1
             else:
-                return 0  # Menunjukkan bahwa kota tidak ditemukan
+                return 0
 
     def select_cities(self, user_id):
         conn = sqlite3.connect(self.database)
         with conn:
             cursor = conn.cursor()
-            # Memilih semua kota pengguna
             cursor.execute('''SELECT cities.city 
-                            FROM users_cities  
-                            JOIN cities ON users_cities.city_id = cities.id
-                            WHERE users_cities.user_id = ?''', (user_id,))
-            cities = [row[0] for row in cursor.fetchall()]
-            return cities  # Mengembalikan daftar kota pengguna
+                              FROM users_cities  
+                              JOIN cities ON users_cities.city_id = cities.id
+                              WHERE users_cities.user_id = ?''', (user_id,))
+            return [row[0] for row in cursor.fetchall()]
 
     def get_coordinates(self, city_name):
         conn = sqlite3.connect(self.database)
         with conn:
             cursor = conn.cursor()
-            # Mendapatkan koordinat kota berdasarkan nama
-            cursor.execute('''SELECT lat, lng
-                            FROM cities  
-                            WHERE city = ?''', (city_name,))
-            coordinates = cursor.fetchone()
-            return coordinates  # Mengembalikan koordinat kota
+            cursor.execute('''SELECT lat, lng FROM cities WHERE city = ?''', (city_name,))
+            return cursor.fetchone()
 
-    def create_graph(self, path, cities):
-        #membuat konteks grafis baru dengan proyeksi platecaree
+    def set_user_color(self, user_id, color):
+        conn = sqlite3.connect(self.database)
+        with conn:
+            conn.execute('''INSERT INTO users_color (user_id, color)
+                            VALUES (?, ?)
+                            ON CONFLICT(user_id) DO UPDATE SET color = excluded.color''',
+                         (user_id, color))
+            conn.commit()
+
+    def get_user_color(self, user_id):
+        conn = sqlite3.connect(self.database)
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT color FROM users_color WHERE user_id = ?", (user_id,))
+            result = cursor.fetchone()
+            return result[0] if result else 'red'  # Default warna merah
+
+    def create_graph(self, path, cities, user_id):
         ax = plt.axes(projection=ccrs.PlateCarree())
-        #menambahkan gambar bumi default ke peta
         ax.stock_img()
-        #iterasi melalui daftar kota untuk tampilkan di peta
-        for city in cities :
-            #mengambil koordinat kota
+        marker_color = self.get_user_color(user_id)
+
+        for city in cities:
             coordinates = self.get_coordinates(city)
-            #melihat apakah koordinat berhasil diambil
             if coordinates:
-                #membuka tuple koordinat
                 lat, lng = coordinates
-                #menampilkan marker di tampilan peta sesuai koordinat kota
-                plt.plot([lat], [lng], color='r', linewidth=1, marker='.', transform = ccrs.Geodetic())
-                #menambahkan nama kota dekat marker
-                plt.text(lng + 3, lat + 12, city, horizontalalignment= 'left', transform = ccrs.Geocentric())
-        #menyimpan gambar peta di argumen path
+                ax.plot(lng, lat, color=marker_color, marker='o', markersize=5, transform=ccrs.PlateCarree())
+                plt.text(lng + 3, lat + 12, city, horizontalalignment='left', transform=ccrs.Geodetic())
+
         plt.savefig(path)
-        #menutup konteks matplotlib untuk membebaskan sumber daya
         plt.close()
 
     def draw_distance(self, city1, city2):
