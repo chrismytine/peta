@@ -11,7 +11,7 @@ bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
 
 @bot.event
 async def on_ready():
-    print("✅ Bot berhasil dijalankan")
+    print(" Bot berhasil dijalankan")
 
 @bot.command()
 async def start(ctx: commands.Context):
